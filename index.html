@@ -326,6 +326,57 @@
     color: #991b1b;
   }
 
+  .item-cat-tag {
+    display: inline-flex;
+    align-items: center;
+    font-size: 11.5px;
+    font-weight: 500;
+    padding: 1px 7px;
+    border-radius: 4px;
+    background: #f1f5f9;
+    color: #475569;
+    border: 1px solid #e2e8f0;
+    white-space: nowrap;
+  }
+
+  .item-search-box {
+    margin-top: 10px;
+    position: relative;
+    width: 100%;
+  }
+
+  .item-search-box input {
+    width: 100%;
+    padding-right: 36px;
+    font-size: 14.5px;
+  }
+
+  .item-search-clear {
+    display: none;
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: #f1f5f9;
+    border: 1px solid #cbd5e1;
+    border-radius: 50%;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    font-size: 13px;
+    color: #64748b;
+    cursor: pointer;
+    line-height: 22px;
+    text-align: center;
+    transition: all 0.15s ease;
+  }
+
+  .item-search-clear:hover {
+    background: #e2e8f0;
+    color: #1e293b;
+    border-color: #94a3b8;
+  }
+
   .item-action-side {
     display: flex;
     align-items: center;
@@ -901,16 +952,22 @@
     </div>
 
     <div class="stockinfo-bar" id="stockinfo">
-      <span>ℹ️</span> กำลังโหลดยอดคงคลัง...
+      <span>ℹ️</span> กำลังโหลดข้อมูล...
     </div>
 
-    <label for="cat">หมวดพัสดุ <span class="req">*</span></label>
+    <label for="cat">หมวดพัสดุ</label>
     <select id="cat"></select>
+
+    <!-- ช่องค้นหารายการพัสดุ -->
+    <div class="item-search-box">
+      <input type="text" id="item-search" placeholder="🔍 พิมพ์ค้นหาชื่อหรือรหัสพัสดุ (ไม่ต้องเลือกหมวดก็ได้)" autocomplete="off">
+      <button type="button" id="btn-clear-search" class="item-search-clear" title="ล้างการค้นหา">✕</button>
+    </div>
 
     <!-- รายการพัสดุในหมวด -->
     <div style="margin-top: 14px;">
-      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 6px;">
-        <span style="font-size: 13.5px; font-weight: 600; color: #374151;">รายการพัสดุในหมวด</span>
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 6px; flex-wrap:wrap; gap:4px;">
+        <span style="font-size: 13.5px; font-weight: 600; color: #374151;">รายการพัสดุ</span>
         <span id="item-count-badge" style="font-size: 12.5px; color: #6b7280;"></span>
       </div>
       <div class="item-list-container" id="item-list-box">
@@ -1057,26 +1114,7 @@ if (typeof google === 'undefined' || !google.script) {
   };
 }
 
-var API_URL = 'https://script.google.com/macros/s/AKfycbwwtmTRNzPNkoPOzXbzgnZnjX8XNECbKQ4wIFyxWmzb7JhazHupTDIBz5zEzhZJ97o/exec';
-
-function callApi(action, data) {
-  var payload = Object.assign({action: action}, data || {});
-  return fetch(API_URL, {
-    method: 'POST',
-    body: JSON.stringify(payload),
-    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-    credentials: 'omit'
-  })
-  .then(function (res) {
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    return res.json();
-  })
-  .then(function (json) {
-    if (!json.ok) throw new Error(json.error || 'เกิดข้อผิดพลาดจากเซิร์ฟเวอร์');
-    return json.data;
-  });
-}
-callApi('getInit').then(function (d) {
+google.script.run.withSuccessHandler(function (d) {
   DEPTS = d.depts; ITEMS = d.items;
   $('dept').innerHTML = '<option value="">-- เลือกหน่วยงาน --</option>' +
     DEPTS.map(function (x) { return '<option value="' + esc(x.code) + '">' + esc(x.name) + ' (' + esc(x.code) + ')</option>'; }).join('');
@@ -1085,43 +1123,85 @@ callApi('getInit').then(function (d) {
     Object.keys(cats).sort().map(function (c) {
       return '<option value="' + esc(c) + '">' + esc(c) + '</option>';
     }).join('');
-  $('stockinfo').innerHTML = '<span>ℹ️</span> ยอดคงคลัง ณ ' + (d.updated_at || '-') + ' — รายการที่ของหมดจะเบิกไม่ได้';
+  $('stockinfo').innerHTML = '<span>ℹ️</span> ข้อมูล ณ ' + (d.updated_at || '-') + ' — รายการที่ขึ้นว่า ❌ หมด จะเบิกไม่ได้';
   fillItems();
   try {
     var last = localStorage.getItem('dept'); if (last) $('dept').value = last;
     var who = localStorage.getItem('requester'); if (who) $('requester').value = who;
   } catch (e) {}
-}).catch(function (e) { show('โหลดข้อมูลไม่ได้: ' + e.message, false); });
+}).withFailureHandler(function (e) { show('โหลดข้อมูลไม่ได้: ' + e.message, false); }).getInit();
 
 function fillItems() {
-  var cat = $('cat').value;
+  var cat = $('cat') ? $('cat').value : '';
+  var searchInput = $('item-search');
+  var rawQ = searchInput ? searchInput.value : '';
+  var q = rawQ.trim().toLowerCase();
+  var isSearching = q.length > 0;
 
-  if (!cat) {
-    $('item-list').innerHTML = '<div style="padding: 24px 16px; text-align: center; color: #6b7280; font-size: 14px;">👉 กรุณาเลือก <b>หมวดพัสดุ</b> ด้านบน เพื่อแสดงรายการพัสดุ</div>';
+  var clearBtn = $('btn-clear-search');
+  if (clearBtn) {
+    clearBtn.style.display = isSearching ? 'inline-flex' : 'none';
+  }
+
+  // If no category selected AND not searching: show prompt
+  if (!cat && !isSearching) {
+    $('item-list').innerHTML = '<div style="padding: 24px 16px; text-align: center; color: #6b7280; font-size: 14px;">👉 กรุณาเลือก <b>หมวดพัสดุ</b> ด้านบน หรือพิมพ์ค้นหาชื่อ/รหัสพัสดุด้านบน</div>';
     var badge = $('item-count-badge'); if (badge) badge.textContent = '';
     return;
   }
 
+  var isCrossCategory = !cat || cat === '__ALL__';
+  var words = isSearching ? q.split(/\s+/).filter(Boolean) : [];
+
   var list = ITEMS.filter(function (i) {
     if (cat && cat !== '__ALL__' && i.category !== cat) return false;
+    if (isSearching) {
+      var name = String(i.name || '').toLowerCase();
+      var code = String(i.code || '').toLowerCase();
+      var matchAll = words.every(function (w) {
+        return name.indexOf(w) !== -1 || code.indexOf(w) !== -1;
+      });
+      if (!matchAll) return false;
+    }
     return true;
   }).sort(function (a, b) {
     return (b.stock > 0) - (a.stock > 0) || String(a.name).localeCompare(String(b.name), 'th');
   });
 
   var badge = $('item-count-badge');
-  if (badge) badge.textContent = 'พบ ' + list.length + ' รายการ';
+  var totalFound = list.length;
 
-  if (!list.length) {
-    $('item-list').innerHTML = '<div style="padding: 24px 16px; text-align: center; color: #9ca3af; font-size: 14px;">ไม่พบรายการพัสดุในหมวดนี้</div>';
+  if (totalFound === 0) {
+    if (badge) badge.textContent = 'พบ 0 รายการ';
+    if (isSearching) {
+      $('item-list').innerHTML = '<div style="padding: 24px 16px; text-align: center; color: #9ca3af; font-size: 14px;">ไม่พบรายการที่ค้นหา</div>';
+    } else {
+      $('item-list').innerHTML = '<div style="padding: 24px 16px; text-align: center; color: #9ca3af; font-size: 14px;">ไม่พบรายการพัสดุในหมวดนี้</div>';
+    }
     return;
   }
 
-  $('item-list').innerHTML = list.map(function (it) {
+  var MAX_ITEMS = 50;
+  var isOverLimit = totalFound > MAX_ITEMS;
+  var displayList = isOverLimit ? list.slice(0, MAX_ITEMS) : list;
+
+  if (badge) {
+    if (isOverLimit) {
+      badge.innerHTML = '<span style="color:#d97706; font-weight:600;">พบ ' + totalFound + ' รายการ (แสดง ' + MAX_ITEMS + ' รายการแรก พิมพ์เพิ่มเพื่อกรองให้แคบลง)</span>';
+    } else {
+      badge.textContent = 'พบ ' + totalFound + ' รายการ';
+    }
+  }
+
+  var html = displayList.map(function (it) {
     var outOfStock = it.stock <= 0;
     var stockBadge = outOfStock
       ? '<span class="item-stock-tag zero">❌ หมด</span>'
-      : '<span class="item-stock-tag">คงเหลือ ' + fmt(it.stock) + ' ' + esc(it.unit) + '</span>';
+      : '<span class="item-stock-tag">หน่วย: ' + esc(it.unit) + '</span>';
+
+    var catTag = (isCrossCategory && it.category)
+      ? '<span class="item-cat-tag">📂 ' + esc(it.category) + '</span>'
+      : '';
 
     var actionHtml = outOfStock
       ? '<button type="button" class="btn-add-inline" disabled style="background:#f1f5f9;color:#94a3b8;cursor:not-allowed;">ของหมด</button>'
@@ -1134,6 +1214,7 @@ function fillItems() {
         '<div class="item-sub">' +
           '<span style="font-family: monospace; background: #f3f4f6; padding: 1px 6px; border-radius: 4px; font-size: 12px; color: #4b5563;">[' + esc(it.code) + ']</span>' +
           stockBadge +
+          catTag +
         '</div>' +
       '</div>' +
       '<div class="item-action-side">' +
@@ -1141,8 +1222,33 @@ function fillItems() {
       '</div>' +
     '</div>';
   }).join('');
+
+  if (isOverLimit) {
+    html += '<div style="padding: 12px 16px; text-align: center; color: #d97706; background: #fffbeb; font-size: 13px; border-top: 1px dashed #fde68a;">⚠️ พบ ' + totalFound + ' รายการ แสดง ' + MAX_ITEMS + ' รายการแรก พิมพ์เพิ่มเพื่อกรองให้แคบลง</div>';
+  }
+
+  $('item-list').innerHTML = html;
 }
 $('cat').addEventListener('change', fillItems);
+
+var itemSearchEl = $('item-search');
+if (itemSearchEl) {
+  itemSearchEl.addEventListener('input', fillItems);
+  itemSearchEl.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') e.preventDefault();
+  });
+}
+
+var clearSearchBtn = $('btn-clear-search');
+if (clearSearchBtn) {
+  clearSearchBtn.addEventListener('click', function () {
+    if (itemSearchEl) {
+      itemSearchEl.value = '';
+      itemSearchEl.focus();
+    }
+    fillItems();
+  });
+}
 
 function addFromList(code, btn) {
   var it = itemByCode(code);
@@ -1160,7 +1266,7 @@ function addFromList(code, btn) {
   var ex = CART.filter(function (c) { return c.item_code === it.code; })[0];
   var total = (ex ? ex.qty : 0) + q;
   if (total > it.stock) {
-    show(it.name + ' คงเหลือ ' + fmt(it.stock) + ' ' + it.unit + ' (ในใบเบิกมีแล้ว ' + (ex ? ex.qty : 0) + ') เบิกได้ไม่เกินยอดคงเหลือ', false);
+    show(it.name + ' — จำนวนที่ขอเกินกว่าที่คลังมีอยู่ กรุณาลดจำนวน หรือติดต่องานคลัง', false);
     return;
   }
   if (ex) {
@@ -1191,7 +1297,7 @@ function draw() {
     var it = itemByCode(c.item_code) || {stock: 0};
     return '<tr>' +
       '<td><div class="cart-item-name">' + esc(c.item_name) + '</div>' +
-      '<div class="cart-item-badge">' + esc(c.item_code) + ' · คงเหลือ <span class="cart-stock-rem">' + fmt(it.stock) + ' ' + esc(c.unit) + '</span></div></td>' +
+      '<div class="cart-item-badge">' + esc(c.item_code) + ' · หน่วย: ' + esc(c.unit) + '</div></td>' +
       '<td class="num"><input type="number" min="1" max="' + it.stock + '" value="' + c.qty + '" data-i="' + i + '"></td>' +
       '<td class="del-col"><button class="del" data-del="' + i + '" title="ลบรายการนี้">ลบ</button></td></tr>';
   }).join('');
@@ -1212,7 +1318,7 @@ function draw() {
 $('cart').addEventListener('change', function (ev) {
   var i = ev.target.getAttribute('data-i'); if (i === null) return;
   var it = itemByCode(CART[i].item_code), v = Number(ev.target.value);
-  if (it && v > it.stock) { v = it.stock; show(it.name + ' เบิกได้ไม่เกิน ' + fmt(it.stock) + ' ' + it.unit, false); }
+  if (it && v > it.stock) { v = it.stock; show(it.name + ' — จำนวนที่ขอเกินกว่าที่คลังมีอยู่ ระบบปรับเป็นจำนวนสูงสุดที่เบิกได้ให้แล้ว', false); }
   CART[i].qty = v > 0 ? v : 1; draw();
 });
 
@@ -1242,23 +1348,23 @@ $('send').addEventListener('click', function () {
     lines: CART
   };
   var btn = this; btn.disabled = true; btn.textContent = '⏳ กำลังส่งใบเบิก...';
-  callApi('submit', {req: payload}).then(function (r) {
+  google.script.run.withSuccessHandler(function (r) {
     show('ส่งใบเบิกแล้ว เลขที่ ' + r.req_id + ' (' + r.count + ' รายการ) — รอคลังรับเรื่อง', true);
     try { localStorage.setItem('dept', code); localStorage.setItem('requester', payload.requester); } catch (e) {}
     openSlip({req_id: r.req_id, at: r.at, dept_code: code, dept_name: payload.dept_name, requester: payload.requester,
               note: '', status: 'รอคลังรับเรื่อง', doc_no: '', lines: CART.slice()});
     CART = []; draw();
     btn.disabled = false; btn.textContent = '📨 ส่งใบเบิก';
-  }).catch(function (e) {
+  }).withFailureHandler(function (e) {
     show(e.message, false); btn.disabled = false; btn.textContent = '📨 ส่งใบเบิก';
-  });
+  }).submitRequest(payload);
 });
 
 $('hist').addEventListener('click', function () {
   var code = $('dept').value;
   if (!code) { show('กรุณาเลือกหน่วยงานที่เบิกก่อนดูประวัติ', false); return; }
   $('history').innerHTML = '<div style="padding:12px;text-align:center;color:#6b7280;">⏳ กำลังโหลดประวัติ...</div>';
-  callApi('myRequests', {dept_code: code, pin: ''}).then(function (rows) {
+  google.script.run.withSuccessHandler(function (rows) {
     if (!rows || !rows.length) {
       $('history').innerHTML = '<div class="empty-state">ยังไม่มีใบเบิกของหน่วยงานนี้</div>';
       return;
@@ -1279,9 +1385,9 @@ $('hist').addEventListener('click', function () {
         '<button data-print="' + esc(r.req_id) + '">🖨️ พิมพ์</button>' +
       '</div>';
     }).join('');
-  }).catch(function (e) {
+  }).withFailureHandler(function (e) {
     $('history').innerHTML = '<div class="err" style="display:block;">' + esc(e.message) + '</div>';
-  });
+  }).getMyRequests(code, '');
 });
 
 $('history').addEventListener('click', function (ev) {
@@ -1290,9 +1396,8 @@ $('history').addEventListener('click', function (ev) {
   if (!target) return;
   var id = target.getAttribute('data-print');
   if (!id) return;
-  callApi('requestDetail', {dept_code: $('dept').value, pin: '', req_id: id})
-    .then(openSlip)
-    .catch(function (e) { show(e.message, false); });
+  google.script.run.withSuccessHandler(openSlip).withFailureHandler(function (e) { show(e.message, false); })
+    .getRequestDetail($('dept').value, '', id);
 });
 
 function thDate(iso) {
